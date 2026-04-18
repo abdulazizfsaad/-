@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { CasePriority, CaseStage, CustomerStatus, InvoiceStatus, RiskLevel, SubscriptionStatus, UserRole, UserStatus } from "@prisma/client";
+import { CasePriority, CaseStage, CustomerStatus, InvoiceStatus, PlanStatus, RiskLevel, SubscriptionStatus, UserRole, UserStatus, WhatsAppSessionStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateCollectionCase, recalculateCustomerBalance, updateInvoiceStatus } from "@/lib/automations";
@@ -414,6 +414,178 @@ export async function updateTenantStatus(formData: FormData) {
   await requireAuth([UserRole.SUPER_ADMIN]);
   await prisma.tenant.update({ where: { id: value(formData, "tenantId") }, data: { subscriptionStatus: value(formData, "status") as SubscriptionStatus } });
   revalidatePath("/admin/tenants");
+}
+
+export async function updateSubscriptionPlan(formData: FormData) {
+  const session = await requireAuth([UserRole.SUPER_ADMIN]);
+  const id = value(formData, "id");
+  const oldPlan = await prisma.subscriptionPlan.findUnique({ where: { id } });
+  if (!oldPlan) throw new Error("الباقة غير موجودة.");
+  const data = {
+    name: value(formData, "name"),
+    monthlyPrice: Number(value(formData, "monthlyPrice") || 0),
+    yearlyPrice: Number(value(formData, "yearlyPrice") || 0),
+    maxUsers: Number(value(formData, "maxUsers") || 1),
+    maxCustomers: Number(value(formData, "maxCustomers") || 1),
+    maxInvoices: Number(value(formData, "maxInvoices") || 1),
+    maxWhatsAppAccounts: Number(value(formData, "maxWhatsAppAccounts") || 0),
+    maxSmsPerMonth: Number(value(formData, "maxSmsPerMonth") || 0),
+    status: (value(formData, "status") || PlanStatus.ACTIVE) as PlanStatus
+  };
+  await prisma.subscriptionPlan.update({ where: { id }, data });
+  await prisma.auditLog.create({ data: { userId: session.user.id, action: "plan.update", entityType: "SubscriptionPlan", entityId: id, oldValue: { name: oldPlan.name }, newValue: data } });
+  revalidatePath("/admin/plans");
+}
+
+export async function changeTenantPlan(formData: FormData) {
+  const session = await requireAuth([UserRole.SUPER_ADMIN]);
+  const tenantId = value(formData, "tenantId");
+  const planId = value(formData, "planId");
+  const plan = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
+  if (!plan) throw new Error("الباقة غير موجودة.");
+  const trialEndsAt = value(formData, "trialEndsAt") ? new Date(value(formData, "trialEndsAt")) : null;
+  const nextBillingDate = value(formData, "nextBillingDate") ? new Date(value(formData, "nextBillingDate")) : trialEndsAt;
+  const status = (value(formData, "status") || SubscriptionStatus.ACTIVE) as SubscriptionStatus;
+  await prisma.$transaction([
+    prisma.tenant.update({ where: { id: tenantId }, data: { subscriptionPlanId: plan.id, subscriptionStatus: status, trialEndsAt } }),
+    prisma.tenantSubscription.create({ data: { tenantId, planId: plan.id, status, trialEndsAt, nextBillingDate, amount: plan.monthlyPrice, currency: "SAR" } }),
+    prisma.auditLog.create({ data: { tenantId, userId: session.user.id, action: "tenant.plan.change", entityType: "Tenant", entityId: tenantId, newValue: { plan: plan.code, status } } })
+  ]);
+  revalidatePath("/admin/tenants");
+  revalidatePath("/billing");
+}
+
+export async function updateCompanySettings(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.SUPER_ADMIN]);
+  const tenantId = value(formData, "tenantId") || session.user.tenantId;
+  if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const data = {
+    name: value(formData, "name"),
+    commercialRegistrationNumber: value(formData, "commercialRegistrationNumber"),
+    vatNumber: value(formData, "vatNumber"),
+    industry: value(formData, "industry"),
+    country: value(formData, "country") || "SA",
+    city: value(formData, "city"),
+    address: value(formData, "address"),
+    phone: value(formData, "phone"),
+    email: value(formData, "email"),
+    logoUrl: value(formData, "logoUrl")
+  };
+  await prisma.tenant.update({ where: { id: tenantId }, data });
+  await prisma.auditLog.create({ data: { tenantId, userId: session.user.id, action: "tenant.settings.update", entityType: "Tenant", entityId: tenantId, newValue: data } });
+  revalidatePath("/settings");
+  revalidatePath("/settings/company");
+}
+
+export async function savePrintSettings(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
+  const tenantId = session.user.tenantId;
+  if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const valueJson = {
+    headerTitle: value(formData, "headerTitle"),
+    footerNote: value(formData, "footerNote"),
+    showLogo: value(formData, "showLogo") === "on",
+    showVat: value(formData, "showVat") === "on",
+    showCr: value(formData, "showCr") === "on",
+    paperSize: value(formData, "paperSize") || "A4",
+    reportSignature: value(formData, "reportSignature")
+  };
+  await prisma.systemSetting.upsert({
+    where: { tenantId_key: { tenantId, key: "print_settings" } },
+    create: { tenantId, key: "print_settings", value: valueJson },
+    update: { value: valueJson }
+  });
+  await prisma.auditLog.create({ data: { tenantId, userId: session.user.id, action: "settings.print.update", entityType: "SystemSetting", entityId: "print_settings", newValue: valueJson } });
+  revalidatePath("/settings/print");
+}
+
+export async function createUserAction(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.SUPER_ADMIN]);
+  const tenantId = value(formData, "tenantId") || session.user.tenantId;
+  if (!tenantId && session.user.role !== UserRole.SUPER_ADMIN) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const email = value(formData, "email").toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) throw new Error("البريد الإلكتروني مستخدم مسبقًا.");
+  const passwordHash = await bcrypt.hash(value(formData, "password") || "Password123!", 12);
+  const user = await prisma.user.create({
+    data: {
+      tenantId: tenantId || null,
+      name: value(formData, "name"),
+      email,
+      phone: value(formData, "phone"),
+      passwordHash,
+      role: (value(formData, "role") || UserRole.COLLECTOR) as UserRole,
+      status: (value(formData, "status") || UserStatus.ACTIVE) as UserStatus
+    }
+  });
+  await prisma.auditLog.create({ data: { tenantId: tenantId || null, userId: session.user.id, action: "user.create", entityType: "User", entityId: user.id, newValue: { email, role: user.role } } });
+  revalidatePath("/users");
+  revalidatePath("/settings/users");
+}
+
+export async function updateUserStatusAction(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.SUPER_ADMIN]);
+  const id = value(formData, "id");
+  const user = await prisma.user.findFirst({ where: { id, ...tenantWhere(session) } });
+  if (!user) throw new Error("المستخدم غير موجود أو لا تملك صلاحية تعديله.");
+  const data = {
+    role: (value(formData, "role") || user.role) as UserRole,
+    status: (value(formData, "status") || user.status) as UserStatus
+  };
+  await prisma.user.update({ where: { id }, data });
+  await prisma.auditLog.create({ data: { tenantId: user.tenantId, userId: session.user.id, action: "user.access.update", entityType: "User", entityId: id, oldValue: { role: user.role, status: user.status }, newValue: data } });
+  revalidatePath("/users");
+  revalidatePath("/settings/users");
+}
+
+export async function saveSmsProviderSettings(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
+  const tenantId = session.user.tenantId;
+  if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const providerCode = value(formData, "providerCode") || "generic";
+  const data = {
+    providerName: value(formData, "providerName") || providerCode,
+    providerCode,
+    apiBaseUrl: value(formData, "apiBaseUrl"),
+    senderName: value(formData, "senderName") || process.env.SMS_SENDER_NAME || "THIMAR",
+    isActive: value(formData, "isActive") === "on",
+    settingsJson: {
+      mode: process.env.SMS_API_KEY ? "live-ready" : "demo",
+      apiKeySource: "environment",
+      templatesEnabled: true
+    }
+  };
+  await prisma.smsProvider.upsert({
+    where: { tenantId_providerCode: { tenantId, providerCode } },
+    create: { tenantId, ...data },
+    update: data
+  });
+  await prisma.auditLog.create({ data: { tenantId, userId: session.user.id, action: "integration.sms.update", entityType: "SmsProvider", entityId: providerCode, newValue: { providerCode, senderName: data.senderName, mode: data.settingsJson.mode } } });
+  revalidatePath("/settings/integrations/sms");
+}
+
+export async function saveWhatsAppAccountSettings(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
+  const tenantId = session.user.tenantId;
+  if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const id = value(formData, "id");
+  const sessionStatus = (value(formData, "sessionStatus") || WhatsAppSessionStatus.QR_PENDING) as WhatsAppSessionStatus;
+  const data = {
+    tenantId,
+    name: value(formData, "name") || "حساب واتساب التحصيل",
+    phoneNumber: value(formData, "phoneNumber"),
+    provider: value(formData, "provider") || "qr-provider",
+    status: process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_QR_PROVIDER_TOKEN ? "LIVE_READY" : "DEMO",
+    qrCodeUrl: value(formData, "qrCodeUrl") || "/qr-demo.svg",
+    sessionStatus,
+    lastConnectedAt: sessionStatus === WhatsAppSessionStatus.CONNECTED ? new Date() : null,
+    settingsJson: { tokenSource: "environment", mode: process.env.WHATSAPP_ACCESS_TOKEN ? "cloud-api" : "qr-provider" }
+  };
+  const account = id
+    ? await prisma.whatsAppAccount.update({ where: { id }, data })
+    : await prisma.whatsAppAccount.create({ data });
+  await prisma.auditLog.create({ data: { tenantId, userId: session.user.id, action: "integration.whatsapp.update", entityType: "WhatsAppAccount", entityId: account.id, newValue: { provider: data.provider, sessionStatus } } });
+  revalidatePath("/settings/integrations/whatsapp");
 }
 
 export async function runInvoiceAutomation() {
