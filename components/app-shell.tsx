@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { Bell, BarChart3, Building2, CreditCard, FileText, HandCoins, LayoutDashboard, MessageSquare, Plug, Receipt, Settings, ShieldCheck, Users, WalletCards } from "lucide-react";
+import { Bell, BarChart3, BrainCircuit, Building2, CreditCard, FileText, HandCoins, LayoutDashboard, MessageSquare, Plug, Receipt, Settings, ShieldCheck, Users, WalletCards } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { roleLabels } from "@/lib/auth";
 
 const nav = [
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
+  { href: "/collections/workbench", label: "مركز التحصيل الذكي", icon: BrainCircuit },
   { href: "/customers", label: "العملاء", icon: Building2 },
   { href: "/invoices", label: "الفواتير", icon: FileText },
   { href: "/cases", label: "قضايا التحصيل", icon: HandCoins },

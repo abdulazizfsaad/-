@@ -2,7 +2,7 @@ import { CasePriority, CaseStage, CustomerStatus, EscalationStatus, InvoiceStatu
 
 export const customerStatusLabels: Record<CustomerStatus, string> = {
   ACTIVE: "نشط",
-  ON_HOLD: "موقوف مؤقتاً",
+  ON_HOLD: "موقوف مؤقتًا",
   HIGH_RISK: "مرتفع المخاطر",
   INACTIVE: "غير نشط"
 };
@@ -16,7 +16,7 @@ export const riskLevelLabels: Record<RiskLevel, string> = {
 
 export const invoiceStatusLabels: Record<InvoiceStatus, string> = {
   PAID: "مدفوعة",
-  PARTIAL: "مدفوعة جزئياً",
+  PARTIAL: "مدفوعة جزئيًا",
   UNPAID: "غير مدفوعة",
   OVERDUE: "متأخرة",
   DISPUTED: "متنازع عليها",
@@ -32,7 +32,7 @@ export const caseStageLabels: Record<CaseStage, string> = {
   NO_RESPONSE: "لا يوجد رد",
   DISPUTED: "متنازع عليها",
   ESCALATED: "مصعدة",
-  CLOSED_PAID: "مغلقة بسداد",
+  CLOSED_PAID: "مغلقة بالسداد",
   CLOSED_UNCOLLECTIBLE: "مغلقة متعثرة"
 };
 
@@ -59,7 +59,7 @@ export const promiseStatusLabels: Record<PromiseStatus, string> = {
 export const paymentMethodLabels: Record<PaymentMethod, string> = {
   BANK_TRANSFER: "تحويل بنكي",
   SADAD: "سداد",
-  CASH: "نقداً",
+  CASH: "نقدًا",
   CHEQUE: "شيك",
   CARD: "بطاقة",
   OTHER: "أخرى"

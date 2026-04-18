@@ -124,12 +124,15 @@ export async function createCustomer(formData: FormData) {
   const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.ACCOUNTANT]);
   const tenantId = session.user.tenantId;
   if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const customerCode = value(formData, "customerCode");
+  const duplicate = await prisma.customer.findUnique({ where: { tenantId_customerCode: { tenantId, customerCode } } });
+  if (duplicate) throw new Error("كود العميل مستخدم مسبقًا داخل نفس الشركة.");
   await prisma.customer.create({
     data: {
       tenantId,
       name: value(formData, "name"),
       companyName: value(formData, "companyName"),
-      customerCode: value(formData, "customerCode"),
+      customerCode,
       commercialRegistrationNumber: value(formData, "commercialRegistrationNumber"),
       vatNumber: value(formData, "vatNumber"),
       phone: value(formData, "phone"),
@@ -153,12 +156,17 @@ export async function updateCustomer(formData: FormData) {
   const id = value(formData, "id");
   const customer = await prisma.customer.findFirst({ where: { id, ...tenantWhere(session) } });
   if (!customer) throw new Error("العميل غير موجود أو لا تملك صلاحية تعديله.");
+  const customerCode = value(formData, "customerCode");
+  if (customerCode !== customer.customerCode) {
+    const duplicate = await prisma.customer.findUnique({ where: { tenantId_customerCode: { tenantId: customer.tenantId, customerCode } } });
+    if (duplicate) throw new Error("كود العميل مستخدم مسبقًا داخل نفس الشركة.");
+  }
   await prisma.customer.update({
     where: { id },
     data: {
       name: value(formData, "name"),
       companyName: value(formData, "companyName"),
-      customerCode: value(formData, "customerCode"),
+      customerCode,
       commercialRegistrationNumber: value(formData, "commercialRegistrationNumber"),
       vatNumber: value(formData, "vatNumber"),
       phone: value(formData, "phone"),
@@ -199,11 +207,19 @@ export async function createInvoice(formData: FormData) {
   const dueDate = new Date(value(formData, "dueDate"));
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
   const overdueDays = Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000));
+  const customerId = value(formData, "customerId");
+  const invoiceNumber = value(formData, "invoiceNumber");
+  const [customer, duplicate] = await Promise.all([
+    prisma.customer.findFirst({ where: { id: customerId, tenantId } }),
+    prisma.invoice.findUnique({ where: { tenantId_invoiceNumber: { tenantId, invoiceNumber } } })
+  ]);
+  if (!customer) throw new Error("العميل غير موجود أو لا يتبع نفس الشركة.");
+  if (duplicate) throw new Error("رقم الفاتورة مستخدم مسبقًا داخل نفس الشركة.");
   const invoice = await prisma.invoice.create({
     data: {
       tenantId,
-      customerId: value(formData, "customerId"),
-      invoiceNumber: value(formData, "invoiceNumber"),
+      customerId,
+      invoiceNumber,
       invoiceDate: new Date(value(formData, "invoiceDate")),
       dueDate,
       totalAmount,
@@ -232,11 +248,19 @@ export async function updateInvoice(formData: FormData) {
   const dueDate = new Date(value(formData, "dueDate"));
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
   const overdueDays = Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000));
+  const customerId = value(formData, "customerId");
+  const invoiceNumber = value(formData, "invoiceNumber");
+  if (invoiceNumber !== invoice.invoiceNumber) {
+    const duplicate = await prisma.invoice.findUnique({ where: { tenantId_invoiceNumber: { tenantId: invoice.tenantId, invoiceNumber } } });
+    if (duplicate) throw new Error("رقم الفاتورة مستخدم مسبقًا داخل نفس الشركة.");
+  }
+  const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: invoice.tenantId } });
+  if (!customer) throw new Error("العميل غير موجود أو لا يتبع نفس الشركة.");
   await prisma.invoice.update({
     where: { id },
     data: {
-      customerId: value(formData, "customerId"),
-      invoiceNumber: value(formData, "invoiceNumber"),
+      customerId,
+      invoiceNumber,
       invoiceDate: new Date(value(formData, "invoiceDate")),
       dueDate,
       totalAmount,
@@ -250,10 +274,10 @@ export async function updateInvoice(formData: FormData) {
     }
   });
   await recalculateCustomerBalance(invoice.customerId);
-  if (invoice.customerId !== value(formData, "customerId")) await recalculateCustomerBalance(value(formData, "customerId"));
+  if (invoice.customerId !== customerId) await recalculateCustomerBalance(customerId);
   await updateInvoiceStatus(id);
   await generateCollectionCase(id);
-  await prisma.auditLog.create({ data: { tenantId: invoice.tenantId, userId: session.user.id, action: "invoice.update", entityType: "Invoice", entityId: id, oldValue: { invoiceNumber: invoice.invoiceNumber }, newValue: { invoiceNumber: value(formData, "invoiceNumber") } } });
+  await prisma.auditLog.create({ data: { tenantId: invoice.tenantId, userId: session.user.id, action: "invoice.update", entityType: "Invoice", entityId: id, oldValue: { invoiceNumber: invoice.invoiceNumber }, newValue: { invoiceNumber } } });
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${id}`);
   redirect(`/invoices/${id}`);
