@@ -127,6 +127,40 @@ export async function getCollectionsIntelligence(session: Session) {
   };
 }
 
+export async function getCollectorPerformance(session: Session) {
+  const scope = tenantScope(session);
+  const [collectors, cases, payments] = await Promise.all([
+    prisma.user.findMany({ where: { ...scope, role: "COLLECTOR" }, orderBy: { name: "asc" } }),
+    prisma.collectionCase.findMany({ where: scope, include: { customer: true } }),
+    prisma.payment.findMany({ where: scope, include: { customer: true } })
+  ]);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  return collectors.map((collector) => {
+    const assignedCases = cases.filter((item) => item.assignedCollectorId === collector.id);
+    const customerIds = new Set(assignedCases.map((item) => item.customerId));
+    const collectedThisMonth = payments
+      .filter((payment) => customerIds.has(payment.customerId) && payment.paymentDate >= monthStart)
+      .reduce((sum, payment) => sum + Number(payment.amount), 0);
+    const activeCases = assignedCases.filter((item) => !closedStages.includes(item.stage)).length;
+    const closedPaid = assignedCases.filter((item) => item.stage === CaseStage.CLOSED_PAID).length;
+    const target = 250000;
+    return {
+      id: collector.id,
+      name: collector.name,
+      email: collector.email,
+      activeCases,
+      closedPaid,
+      collectedThisMonth,
+      target,
+      achievement: Math.min(100, Math.round((collectedThisMonth / target) * 100)),
+      overloaded: activeCases > 25,
+      needsCoaching: activeCases > 0 && collectedThisMonth < target * 0.25
+    };
+  });
+}
+
 function scoreAccount(input: { amount: number; overdueDays: number; riskLevel: RiskLevel; hasBrokenPromise: boolean; hasDispute: boolean; isEscalated: boolean; lastActivity: Date | null }) {
   const amountScore = Math.min(25, Math.floor(input.amount / 10000));
   const overdueScore = input.overdueDays > 90 ? 35 : input.overdueDays > 60 ? 28 : input.overdueDays > 30 ? 20 : input.overdueDays > 7 ? 12 : input.overdueDays > 0 ? 6 : 0;

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { generateCollectionCase, recalculateCustomerBalance, updateInvoiceStatus } from "@/lib/automations";
 import { sendSms } from "@/lib/sms/sendSms";
 import { sendWhatsApp } from "@/lib/whatsapp/sendWhatsApp";
+import { defaultMessageTemplates, type MessageTemplateKey } from "@/lib/message-templates";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -375,6 +376,38 @@ export async function sendDemoWhatsAppAction(formData: FormData) {
   const session = await requireAuth();
   await sendWhatsApp({ session, customerId: value(formData, "customerId") || undefined, caseId: value(formData, "caseId") || undefined, recipientPhone: value(formData, "recipientPhone"), messageBody: value(formData, "messageBody") });
   revalidatePath("/whatsapp/messages");
+}
+
+export async function saveMessageTemplates(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
+  const tenantId = session.user.tenantId;
+  if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const templates = Object.fromEntries(
+    (Object.keys(defaultMessageTemplates) as MessageTemplateKey[]).map((key) => [
+      key,
+      {
+        ...defaultMessageTemplates[key],
+        body: value(formData, key) || defaultMessageTemplates[key].body
+      }
+    ])
+  );
+  await prisma.systemSetting.upsert({
+    where: { tenantId_key: { tenantId, key: "message_templates" } },
+    create: { tenantId, key: "message_templates", value: templates },
+    update: { value: templates }
+  });
+  await prisma.auditLog.create({
+    data: {
+      tenantId,
+      userId: session.user.id,
+      action: "settings.message_templates.update",
+      entityType: "SystemSetting",
+      entityId: "message_templates",
+      newValue: templates
+    }
+  });
+  revalidatePath("/settings/templates");
+  redirect("/settings/templates?saved=1");
 }
 
 export async function updateTenantStatus(formData: FormData) {

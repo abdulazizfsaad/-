@@ -17,6 +17,7 @@ const nav = [
   { href: "/billing", label: "الاشتراك والفوترة", icon: Receipt },
   { href: "/users", label: "المستخدمون والصلاحيات", icon: Users },
   { href: "/settings", label: "الإعدادات", icon: Settings },
+  { href: "/settings/templates", label: "قوالب الرسائل", icon: MessageSquare },
   { href: "/settings/integrations/sms", label: "تكاملات SMS", icon: Plug },
   { href: "/settings/integrations/whatsapp", label: "تكاملات واتساب", icon: Plug }
 ];
