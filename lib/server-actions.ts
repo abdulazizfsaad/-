@@ -40,6 +40,86 @@ export async function registerTenant(formData: FormData) {
   redirect("/login?registered=1");
 }
 
+export async function registerTenantPublic(formData: FormData) {
+  if (value(formData, "terms") !== "on") throw new Error("يجب قبول الشروط.");
+  const adminEmail = value(formData, "adminEmail").toLowerCase();
+  const companyEmail = value(formData, "companyEmail").toLowerCase();
+  const commercialRegistrationNumber = value(formData, "commercialRegistrationNumber");
+  const adminPassword = value(formData, "adminPassword");
+  if (!adminEmail || !companyEmail || !adminPassword || adminPassword.length < 8) {
+    throw new Error("بيانات التسجيل غير مكتملة أو كلمة المرور قصيرة.");
+  }
+  const [existingUser, existingTenantByCr, existingTenantByEmail] = await Promise.all([
+    prisma.user.findUnique({ where: { email: adminEmail } }),
+    commercialRegistrationNumber ? prisma.tenant.findFirst({ where: { commercialRegistrationNumber } }) : null,
+    prisma.tenant.findFirst({ where: { email: companyEmail } })
+  ]);
+  if (existingUser) throw new Error("بريد مدير الحساب مستخدم مسبقاً.");
+  if (existingTenantByCr) throw new Error("السجل التجاري مسجل مسبقاً.");
+  if (existingTenantByEmail) throw new Error("بريد الشركة مسجل مسبقاً.");
+  const plan = await prisma.subscriptionPlan.findUnique({ where: { code: value(formData, "plan") || "starter" } });
+  if (!plan) throw new Error("الباقة غير موجودة.");
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
+  const trialEndsAt = new Date(Date.now() + 14 * 86400000);
+  await prisma.$transaction(async (tx) => {
+    const tenant = await tx.tenant.create({
+      data: {
+        name: value(formData, "companyName"),
+        commercialRegistrationNumber,
+        vatNumber: value(formData, "vatNumber"),
+        city: value(formData, "city"),
+        phone: value(formData, "phone"),
+        email: companyEmail,
+        subscriptionPlanId: plan.id,
+        subscriptionStatus: SubscriptionStatus.TRIAL,
+        trialEndsAt
+      }
+    });
+    const role = await tx.role.create({
+      data: {
+        tenantId: tenant.id,
+        name: "مدير الشركة",
+        description: "صلاحيات كاملة للشركة",
+        permissions: { all: true },
+        systemRole: UserRole.COMPANY_ADMIN
+      }
+    });
+    await tx.user.create({
+      data: {
+        tenantId: tenant.id,
+        name: value(formData, "adminName"),
+        email: adminEmail,
+        passwordHash,
+        phone: value(formData, "phone"),
+        role: UserRole.COMPANY_ADMIN,
+        roleId: role.id,
+        status: UserStatus.ACTIVE
+      }
+    });
+    await tx.tenantSubscription.create({
+      data: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        status: SubscriptionStatus.TRIAL,
+        trialEndsAt,
+        nextBillingDate: trialEndsAt,
+        amount: plan.monthlyPrice,
+        currency: "SAR"
+      }
+    });
+    await tx.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        action: "tenant.register",
+        entityType: "Tenant",
+        entityId: tenant.id,
+        newValue: { plan: plan.code, source: "public landing" }
+      }
+    });
+  });
+  redirect("/login?registered=1");
+}
+
 export async function createCustomer(formData: FormData) {
   const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.ACCOUNTANT]);
   const tenantId = session.user.tenantId;

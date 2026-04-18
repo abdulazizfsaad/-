@@ -30,7 +30,7 @@ export function LoginForm() {
     <form onSubmit={onSubmit} className="grid gap-4">
       <label className="grid gap-2 text-sm font-bold">
         البريد الإلكتروني
-        <Input name="email" type="email" placeholder="admin@riyadh-trading.sa" required />
+        <Input name="email" type="email" placeholder="admin@thimar.sa" required />
       </label>
       <label className="grid gap-2 text-sm font-bold">
         كلمة المرور

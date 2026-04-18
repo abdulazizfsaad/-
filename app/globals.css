@@ -36,3 +36,16 @@ select,
 button {
   font: inherit;
 }
+
+@keyframes landing-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(50%);
+  }
+}
+
+.landing-marquee {
+  animation: landing-marquee 24s linear infinite;
+}
