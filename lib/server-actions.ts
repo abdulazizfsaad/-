@@ -68,6 +68,48 @@ export async function createCustomer(formData: FormData) {
   redirect("/customers");
 }
 
+export async function updateCustomer(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.ACCOUNTANT]);
+  const id = value(formData, "id");
+  const customer = await prisma.customer.findFirst({ where: { id, ...tenantWhere(session) } });
+  if (!customer) throw new Error("العميل غير موجود أو لا تملك صلاحية تعديله.");
+  await prisma.customer.update({
+    where: { id },
+    data: {
+      name: value(formData, "name"),
+      companyName: value(formData, "companyName"),
+      customerCode: value(formData, "customerCode"),
+      commercialRegistrationNumber: value(formData, "commercialRegistrationNumber"),
+      vatNumber: value(formData, "vatNumber"),
+      phone: value(formData, "phone"),
+      whatsapp: value(formData, "whatsapp"),
+      email: value(formData, "email"),
+      city: value(formData, "city"),
+      address: value(formData, "address"),
+      creditLimit: Number(value(formData, "creditLimit") || 0),
+      paymentTerms: Number(value(formData, "paymentTerms") || 30),
+      riskLevel: (value(formData, "riskLevel") || RiskLevel.MEDIUM) as RiskLevel,
+      status: (value(formData, "status") || CustomerStatus.ACTIVE) as CustomerStatus,
+      notes: value(formData, "notes")
+    }
+  });
+  await prisma.auditLog.create({ data: { tenantId: customer.tenantId, userId: session.user.id, action: "customer.update", entityType: "Customer", entityId: id, oldValue: { companyName: customer.companyName }, newValue: { companyName: value(formData, "companyName") } } });
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${id}`);
+  redirect(`/customers/${id}`);
+}
+
+export async function deleteCustomer(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
+  const id = value(formData, "id");
+  const customer = await prisma.customer.findFirst({ where: { id, ...tenantWhere(session) } });
+  if (!customer) throw new Error("العميل غير موجود أو لا تملك صلاحية حذفه.");
+  await prisma.customer.update({ where: { id }, data: { status: CustomerStatus.INACTIVE, notes: `${customer.notes ?? ""}\nتم تعطيل العميل بدلاً من حذفه للحفاظ على الأثر المالي والتدقيق.`.trim() } });
+  await prisma.auditLog.create({ data: { tenantId: customer.tenantId, userId: session.user.id, action: "customer.deactivate", entityType: "Customer", entityId: id, oldValue: { status: customer.status }, newValue: { status: CustomerStatus.INACTIVE } } });
+  revalidatePath("/customers");
+  redirect("/customers");
+}
+
 export async function createInvoice(formData: FormData) {
   const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.ACCOUNTANT]);
   const tenantId = session.user.tenantId;
@@ -100,6 +142,60 @@ export async function createInvoice(formData: FormData) {
   redirect(`/invoices/${invoice.id}`);
 }
 
+export async function updateInvoice(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.ACCOUNTANT]);
+  const id = value(formData, "id");
+  const invoice = await prisma.invoice.findFirst({ where: { id, ...tenantWhere(session) } });
+  if (!invoice) throw new Error("الفاتورة غير موجودة أو لا تملك صلاحية تعديلها.");
+  const totalAmount = Number(value(formData, "totalAmount") || 0);
+  const paidAmount = Number(value(formData, "paidAmount") || 0);
+  const dueDate = new Date(value(formData, "dueDate"));
+  const remainingAmount = Math.max(0, totalAmount - paidAmount);
+  const overdueDays = Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000));
+  await prisma.invoice.update({
+    where: { id },
+    data: {
+      customerId: value(formData, "customerId"),
+      invoiceNumber: value(formData, "invoiceNumber"),
+      invoiceDate: new Date(value(formData, "invoiceDate")),
+      dueDate,
+      totalAmount,
+      paidAmount,
+      remainingAmount,
+      vatAmount: Number(value(formData, "vatAmount") || totalAmount * 0.15),
+      currency: value(formData, "currency") || "SAR",
+      status: (value(formData, "status") || (remainingAmount <= 0 ? InvoiceStatus.PAID : overdueDays > 0 ? InvoiceStatus.OVERDUE : paidAmount > 0 ? InvoiceStatus.PARTIAL : InvoiceStatus.UNPAID)) as InvoiceStatus,
+      overdueDays,
+      assignedCollectorId: value(formData, "assignedCollectorId") || null
+    }
+  });
+  await recalculateCustomerBalance(invoice.customerId);
+  if (invoice.customerId !== value(formData, "customerId")) await recalculateCustomerBalance(value(formData, "customerId"));
+  await updateInvoiceStatus(id);
+  await generateCollectionCase(id);
+  await prisma.auditLog.create({ data: { tenantId: invoice.tenantId, userId: session.user.id, action: "invoice.update", entityType: "Invoice", entityId: id, oldValue: { invoiceNumber: invoice.invoiceNumber }, newValue: { invoiceNumber: value(formData, "invoiceNumber") } } });
+  revalidatePath("/invoices");
+  revalidatePath(`/invoices/${id}`);
+  redirect(`/invoices/${id}`);
+}
+
+export async function deleteInvoice(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.ACCOUNTANT]);
+  const id = value(formData, "id");
+  const invoice = await prisma.invoice.findFirst({ where: { id, ...tenantWhere(session) }, include: { payments: true, cases: true } });
+  if (!invoice) throw new Error("الفاتورة غير موجودة أو لا تملك صلاحية حذفها.");
+  if (invoice.payments.length > 0 || invoice.cases.length > 0) {
+    await prisma.invoice.update({ where: { id }, data: { status: InvoiceStatus.ESCALATED } });
+    await prisma.auditLog.create({ data: { tenantId: invoice.tenantId, userId: session.user.id, action: "invoice.archive", entityType: "Invoice", entityId: id, newValue: { reason: "Has payments or cases, archived by status" } } });
+  } else {
+    await prisma.invoice.delete({ where: { id } });
+    await prisma.auditLog.create({ data: { tenantId: invoice.tenantId, userId: session.user.id, action: "invoice.delete", entityType: "Invoice", entityId: id } });
+  }
+  await recalculateCustomerBalance(invoice.customerId);
+  revalidatePath("/invoices");
+  redirect("/invoices");
+}
+
 export async function createCase(formData: FormData) {
   const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
   const tenantId = session.user.tenantId;
@@ -121,6 +217,38 @@ export async function createCase(formData: FormData) {
   });
   revalidatePath("/cases");
   redirect(`/cases/${item.id}`);
+}
+
+export async function updateCase(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.COLLECTOR]);
+  const id = value(formData, "id");
+  const item = await prisma.collectionCase.findFirst({ where: { id, ...tenantWhere(session) } });
+  if (!item) throw new Error("القضية غير موجودة أو لا تملك صلاحية تعديلها.");
+  await prisma.collectionCase.update({
+    where: { id },
+    data: {
+      priority: (value(formData, "priority") || item.priority) as CasePriority,
+      stage: (value(formData, "stage") || item.stage) as CaseStage,
+      assignedCollectorId: formData.has("assignedCollectorId") ? value(formData, "assignedCollectorId") || null : item.assignedCollectorId,
+      nextFollowUpDate: value(formData, "nextFollowUpDate") ? new Date(value(formData, "nextFollowUpDate")) : null,
+      notes: value(formData, "notes")
+    }
+  });
+  await prisma.auditLog.create({ data: { tenantId: item.tenantId, userId: session.user.id, action: "case.update", entityType: "CollectionCase", entityId: id, oldValue: { stage: item.stage }, newValue: { stage: value(formData, "stage") } } });
+  revalidatePath("/cases");
+  revalidatePath(`/cases/${id}`);
+  redirect(`/cases/${id}`);
+}
+
+export async function closeCase(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER, UserRole.COLLECTOR]);
+  const id = value(formData, "id");
+  const item = await prisma.collectionCase.findFirst({ where: { id, ...tenantWhere(session) } });
+  if (!item) throw new Error("القضية غير موجودة أو لا تملك صلاحية إغلاقها.");
+  await prisma.collectionCase.update({ where: { id }, data: { stage: (value(formData, "stage") || CaseStage.CLOSED_UNCOLLECTIBLE) as CaseStage } });
+  await prisma.auditLog.create({ data: { tenantId: item.tenantId, userId: session.user.id, action: "case.close", entityType: "CollectionCase", entityId: id, oldValue: { stage: item.stage }, newValue: { stage: value(formData, "stage") } } });
+  revalidatePath("/cases");
+  redirect("/cases");
 }
 
 export async function addCaseActivity(formData: FormData) {

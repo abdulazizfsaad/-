@@ -12,7 +12,7 @@ export default async function CustomersPage() {
   const customers = await getCustomers(session);
   return (
     <>
-      <PageHeader title="العملاء" description="سجل العملاء، الحدود الائتمانية، أرصدة الذمم، ومؤشرات المخاطر." />
+      <PageHeader title="العملاء" description="سجل العملاء، الحدود الائتمانية، أرصدة الذمم، ومؤشرات المخاطر." action={<Link href="/customers/new" className="rounded-md bg-primary px-4 py-2 text-sm font-bold text-white">إضافة عميل</Link>} />
       <Card className="overflow-x-auto">
         <div className="mb-4 flex flex-wrap gap-3">
           <input className="w-full max-w-sm rounded-md border border-border px-3 py-2 text-sm" placeholder="بحث باسم العميل أو الرقم الضريبي" />
@@ -27,7 +27,7 @@ export default async function CustomersPage() {
           <tbody>
             {customers.map((customer) => (
               <tr key={customer.id} className="border-b border-border">
-                <td className="py-3 font-bold"><Link href={`/customers/${customer.id}`}>{customer.customerCode}</Link></td>
+                <td className="py-3 font-bold"><Link className="text-primary" href={`/customers/${customer.id}`}>{customer.customerCode}</Link></td>
                 <td>{customer.name}</td>
                 <td>{customer.companyName}</td>
                 <td>{customer.city}</td>

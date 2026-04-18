@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/auth";
 import { getCustomer } from "@/lib/data";
 import { caseStageLabels, customerStatusLabels, invoiceStatusLabels, promiseStatusLabels } from "@/lib/labels";
 import { formatDate, formatMoney, overdueDays } from "@/lib/utils";
+import { deleteCustomer } from "@/lib/server-actions";
 
 export default async function CustomerDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireAuth();
@@ -14,7 +15,7 @@ export default async function CustomerDetailsPage({ params }: { params: Promise<
   if (!customer) notFound();
   return (
     <>
-      <PageHeader title={customer.companyName} description={`${customer.name} | ${customer.city ?? "-"} | الرقم الضريبي ${customer.vatNumber ?? "-"}`} />
+      <PageHeader title={customer.companyName} description={`${customer.name} | ${customer.city ?? "-"} | الرقم الضريبي ${customer.vatNumber ?? "-"}`} action={<div className="flex gap-2"><a href={`/customers/${customer.id}/edit`} className="rounded-md bg-primary px-4 py-2 text-sm font-bold text-white">تعديل</a><form action={deleteCustomer}><input type="hidden" name="id" value={customer.id} /><button className="rounded-md border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700">تعطيل العميل</button></form></div>} />
       <section className="grid gap-4 lg:grid-cols-4">
         <Card><p className="text-sm text-muted-foreground">الرصيد الحالي</p><p className="mt-2 text-2xl font-extrabold">{formatMoney(customer.outstandingBalance.toString())}</p></Card>
         <Card><p className="text-sm text-muted-foreground">حد الائتمان</p><p className="mt-2 text-2xl font-extrabold">{formatMoney(customer.creditLimit.toString())}</p></Card>

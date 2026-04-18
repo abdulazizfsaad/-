@@ -11,7 +11,7 @@ export default async function InvoicesPage() {
   const invoices = await getInvoices(session);
   return (
     <>
-      <PageHeader title="الفواتير" description="متابعة الفواتير، تواريخ الاستحقاق، المبالغ المدفوعة، والمتبقية مع المحصل المسؤول." />
+      <PageHeader title="الفواتير" description="متابعة الفواتير، تواريخ الاستحقاق، المبالغ المدفوعة، والمتبقية مع المحصل المسؤول." action={<a href="/invoices/new" className="rounded-md bg-primary px-4 py-2 text-sm font-bold text-white">إضافة فاتورة</a>} />
       <Card className="overflow-x-auto">
         <div className="mb-4 flex flex-wrap gap-3">
           <input className="w-full max-w-sm rounded-md border border-border px-3 py-2 text-sm" placeholder="بحث برقم الفاتورة أو العميل" />
@@ -22,7 +22,7 @@ export default async function InvoicesPage() {
           <tbody>
             {invoices.map((invoice) => (
               <tr key={invoice.id} className="border-b border-border">
-                <td className="py-3 font-extrabold">{invoice.invoiceNumber}</td><td>{invoice.customer.companyName}</td><td>{formatDate(invoice.invoiceDate)}</td><td>{formatDate(invoice.dueDate)}</td><td>{formatMoney(invoice.totalAmount.toString(), invoice.currency)}</td><td>{formatMoney(invoice.paidAmount.toString(), invoice.currency)}</td><td className="font-extrabold">{formatMoney(invoice.remainingAmount.toString(), invoice.currency)}</td><td>{formatMoney(invoice.vatAmount.toString(), invoice.currency)}</td><td>{overdueDays(invoice.dueDate)} يوم</td><td>{invoice.assignedCollector?.name ?? "-"}</td><td><Badge tone={invoice.status === "OVERDUE" ? "danger" : invoice.status === "PAID" ? "success" : "warning"}>{invoiceStatusLabels[invoice.status]}</Badge></td><td>قيد الربط</td>
+                <td className="py-3 font-extrabold"><a className="text-primary" href={`/invoices/${invoice.id}`}>{invoice.invoiceNumber}</a></td><td>{invoice.customer.companyName}</td><td>{formatDate(invoice.invoiceDate)}</td><td>{formatDate(invoice.dueDate)}</td><td>{formatMoney(invoice.totalAmount.toString(), invoice.currency)}</td><td>{formatMoney(invoice.paidAmount.toString(), invoice.currency)}</td><td className="font-extrabold">{formatMoney(invoice.remainingAmount.toString(), invoice.currency)}</td><td>{formatMoney(invoice.vatAmount.toString(), invoice.currency)}</td><td>{invoice.overdueDays || overdueDays(invoice.dueDate)} يوم</td><td>{invoice.assignedCollector?.name ?? "-"}</td><td><Badge tone={invoice.status === "OVERDUE" ? "danger" : invoice.status === "PAID" ? "success" : "warning"}>{invoiceStatusLabels[invoice.status]}</Badge></td><td>{invoice.attachmentUrl ? "مرفق" : "لا يوجد"}</td>
               </tr>
             ))}
           </tbody>
