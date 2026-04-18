@@ -11,6 +11,7 @@ export default async function ReportsPage() {
   const { reports, invoices, cases, promises, payments } = await getReports(session);
   const overdue = invoices.filter((invoice) => invoice.dueDate < new Date() && Number(invoice.remainingAmount) > 0);
   const reportCards = [
+    ["/reports/financial-health", "تقرير الصحة المالية", "CFO", "DSO، CEI، المخاطر، وتوقع النقد"],
     ["/reports/executive", "التقرير التنفيذي للتحصيل", "جاهز للإدارة", "مؤشر الصحة، المخاطر، وقرارات اليوم"],
     ["/reports/aging", "تقرير أعمار الديون", `${overdue.length} فاتورة`, formatMoney(overdue.reduce((s, i) => s + Number(i.remainingAmount), 0))],
     ["/reports/customers", "العملاء المتأخرون", `${new Set(overdue.map((i) => i.customerId)).size} عميل`, "قابل للتصدير"],
@@ -22,8 +23,8 @@ export default async function ReportsPage() {
 
   return (
     <>
-      <PageHeader title="التقارير" description="تقارير تشغيلية وتنفيذية للذمم، التحصيل، الوعود، نشاط المحصلين، والرسائل." />
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <PageHeader title="التقارير" description="تقارير تشغيلية وتنفيذية للذمم، التحصيل، الوعود، نشاط المحصلين، الرسائل، والصحة المالية." />
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {reportCards.map(([href, title, value, note]) => (
           <Link key={href} href={href} className="block">
             <Card className="h-full hover:border-primary">

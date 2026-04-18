@@ -499,6 +499,28 @@ export async function savePrintSettings(formData: FormData) {
   revalidatePath("/settings/print");
 }
 
+export async function saveCreditPolicy(formData: FormData) {
+  const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.COLLECTION_MANAGER]);
+  const tenantId = session.user.tenantId;
+  if (!tenantId) throw new Error("لا توجد شركة مرتبطة بالمستخدم.");
+  const policy = {
+    softReminderDays: Number(value(formData, "softReminderDays") || 3),
+    formalReminderDays: Number(value(formData, "formalReminderDays") || 7),
+    managerEscalationDays: Number(value(formData, "managerEscalationDays") || 30),
+    legalEscalationDays: Number(value(formData, "legalEscalationDays") || 90),
+    creditHoldUtilization: Number(value(formData, "creditHoldUtilization") || 100),
+    maxBrokenPromises: Number(value(formData, "maxBrokenPromises") || 1),
+    requireManagerApprovalAbove: Number(value(formData, "requireManagerApprovalAbove") || 100000)
+  };
+  await prisma.systemSetting.upsert({
+    where: { tenantId_key: { tenantId, key: "credit_policy" } },
+    create: { tenantId, key: "credit_policy", value: policy },
+    update: { value: policy }
+  });
+  await prisma.auditLog.create({ data: { tenantId, userId: session.user.id, action: "settings.credit_policy.update", entityType: "SystemSetting", entityId: "credit_policy", newValue: policy } });
+  revalidatePath("/settings/credit-policy");
+}
+
 export async function createUserAction(formData: FormData) {
   const session = await requireAuth([UserRole.COMPANY_ADMIN, UserRole.SUPER_ADMIN]);
   const tenantId = value(formData, "tenantId") || session.user.tenantId;

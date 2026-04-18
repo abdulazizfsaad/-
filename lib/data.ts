@@ -195,3 +195,12 @@ export async function getWhatsappData(session: Session) {
   ]);
   return { accounts, messages };
 }
+
+export async function getAuditLogs(session: Session) {
+  return prisma.auditLog.findMany({
+    where: tenantScope(session),
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: { user: true, tenant: true }
+  });
+}

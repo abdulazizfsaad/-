@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Bell, BarChart3, BrainCircuit, Building2, CreditCard, FileText, HandCoins, LayoutDashboard, MessageSquare, Plug, Receipt, Settings, ShieldCheck, Users, WalletCards } from "lucide-react";
+import { Bell, BarChart3, BrainCircuit, Building2, CreditCard, FileText, HandCoins, LayoutDashboard, MessageSquare, Plug, Receipt, ScrollText, Settings, ShieldCheck, Users, WalletCards } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { roleLabels } from "@/lib/auth";
 
 const nav = [
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
   { href: "/collections/workbench", label: "مركز التحصيل الذكي", icon: BrainCircuit },
+  { href: "/collections/campaigns", label: "حملات التحصيل", icon: MessageSquare },
   { href: "/customers", label: "العملاء", icon: Building2 },
   { href: "/invoices", label: "الفواتير", icon: FileText },
   { href: "/cases", label: "قضايا التحصيل", icon: HandCoins },
@@ -14,10 +15,13 @@ const nav = [
   { href: "/sms/messages", label: "رسائل SMS", icon: MessageSquare },
   { href: "/whatsapp/messages", label: "رسائل واتساب", icon: MessageSquare },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
+  { href: "/reports/financial-health", label: "الصحة المالية", icon: BarChart3 },
   { href: "/billing", label: "الاشتراك والفوترة", icon: Receipt },
   { href: "/users", label: "المستخدمون والصلاحيات", icon: Users },
+  { href: "/audit", label: "سجل التدقيق", icon: ScrollText },
   { href: "/settings", label: "الإعدادات", icon: Settings },
   { href: "/settings/company", label: "إعدادات الشركة", icon: Building2 },
+  { href: "/settings/credit-policy", label: "سياسة الائتمان", icon: ShieldCheck },
   { href: "/settings/print", label: "إعدادات الطباعة", icon: FileText },
   { href: "/settings/templates", label: "قوالب الرسائل", icon: MessageSquare },
   { href: "/settings/integrations/sms", label: "تكاملات SMS", icon: Plug },
