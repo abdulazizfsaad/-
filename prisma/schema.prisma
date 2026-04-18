@@ -1,0 +1,521 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  COLLECTION_MANAGER
+  COLLECTOR
+  ACCOUNTANT
+  EXECUTIVE_READONLY
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum PlanStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  ON_HOLD
+  HIGH_RISK
+  INACTIVE
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum InvoiceStatus {
+  PAID
+  PARTIAL
+  UNPAID
+  OVERDUE
+  DISPUTED
+  ESCALATED
+}
+
+enum CasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum CaseStage {
+  NEW
+  PENDING_FOLLOW_UP
+  CONTACTED
+  PROMISE_TO_PAY
+  PARTIAL_PAYMENT
+  NO_RESPONSE
+  DISPUTED
+  ESCALATED
+  CLOSED_PAID
+  CLOSED_UNCOLLECTIBLE
+}
+
+enum EscalationStatus {
+  NONE
+  MANAGER
+  LEGAL
+  EXECUTIVE
+}
+
+enum ActivityType {
+  CALL
+  WHATSAPP
+  SMS
+  EMAIL
+  MEETING
+  VISIT
+  INTERNAL_NOTE
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  SADAD
+  CASH
+  CHEQUE
+  CARD
+  OTHER
+}
+
+enum PromiseStatus {
+  PENDING
+  KEPT
+  BROKEN
+}
+
+enum MessageStatus {
+  DEMO
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum WhatsAppSessionStatus {
+  NOT_CONNECTED
+  QR_PENDING
+  CONNECTED
+  EXPIRED
+  DISCONNECTED
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+}
+
+model Tenant {
+  id                             String              @id @default(cuid())
+  name                           String
+  commercialRegistrationNumber   String?
+  vatNumber                      String?
+  industry                       String?
+  country                        String              @default("SA")
+  city                           String?
+  address                        String?
+  phone                          String?
+  email                          String?
+  logoUrl                        String?
+  subscriptionPlanId             String?
+  subscriptionStatus             SubscriptionStatus  @default(TRIAL)
+  trialEndsAt                    DateTime?
+  createdAt                      DateTime            @default(now())
+  updatedAt                      DateTime            @updatedAt
+  subscriptionPlan               SubscriptionPlan?   @relation(fields: [subscriptionPlanId], references: [id])
+  subscriptions                  TenantSubscription[]
+  users                          User[]
+  roles                          Role[]
+  customers                      Customer[]
+  invoices                       Invoice[]
+  cases                          CollectionCase[]
+  activities                     CaseActivity[]
+  payments                       Payment[]
+  promises                       PromiseToPay[]
+  smsProviders                   SmsProvider[]
+  smsMessages                    SmsMessage[]
+  whatsappAccounts               WhatsAppAccount[]
+  whatsappMessages               WhatsAppMessage[]
+  notifications                  Notification[]
+  auditLogs                      AuditLog[]
+  settings                       SystemSetting[]
+  reportMetadata                 ReportMetadata[]
+}
+
+model User {
+  id                  String            @id @default(cuid())
+  tenantId            String?
+  name                String
+  email               String            @unique
+  passwordHash        String
+  phone               String?
+  roleId              String?
+  role                UserRole
+  status              UserStatus        @default(ACTIVE)
+  lastLoginAt         DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  tenant              Tenant?           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleRecord          Role?             @relation(fields: [roleId], references: [id])
+  assignedCases       CollectionCase[]   @relation("AssignedCollector")
+  invoices            Invoice[]          @relation("AssignedInvoiceCollector")
+  activities          CaseActivity[]
+  payments            Payment[]          @relation("CreatedPayments")
+  smsMessages         SmsMessage[]       @relation("SmsSentBy")
+  whatsappMessages    WhatsAppMessage[]  @relation("WhatsAppSentBy")
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  name        String
+  description String?
+  permissions Json
+  systemRole  UserRole?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       User[]
+  @@unique([tenantId, name])
+}
+
+model SubscriptionPlan {
+  id                  String               @id @default(cuid())
+  name                String
+  code                String               @unique
+  monthlyPrice        Decimal              @db.Decimal(12, 2)
+  yearlyPrice         Decimal              @db.Decimal(12, 2)
+  maxUsers            Int
+  maxCustomers        Int
+  maxInvoices         Int
+  maxWhatsAppAccounts Int
+  maxSmsPerMonth      Int
+  features            Json
+  status              PlanStatus           @default(ACTIVE)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  tenants             Tenant[]
+  subscriptions       TenantSubscription[]
+}
+
+model TenantSubscription {
+  id              String             @id @default(cuid())
+  tenantId        String
+  planId          String
+  status          SubscriptionStatus @default(TRIAL)
+  billingCycle    BillingCycle       @default(MONTHLY)
+  startDate       DateTime           @default(now())
+  endDate         DateTime?
+  trialEndsAt     DateTime?
+  nextBillingDate DateTime?
+  amount          Decimal            @db.Decimal(12, 2)
+  currency        String             @default("SAR")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan            SubscriptionPlan   @relation(fields: [planId], references: [id])
+}
+
+model Customer {
+  id                           String           @id @default(cuid())
+  tenantId                     String
+  name                         String
+  companyName                  String
+  customerCode                 String
+  commercialRegistrationNumber String?
+  vatNumber                    String?
+  phone                        String?
+  whatsapp                     String?
+  email                        String?
+  city                         String?
+  address                      String?
+  creditLimit                  Decimal          @db.Decimal(14, 2)
+  paymentTerms                 Int
+  riskLevel                    RiskLevel        @default(MEDIUM)
+  status                       CustomerStatus   @default(ACTIVE)
+  notes                        String?
+  outstandingBalance           Decimal          @default(0) @db.Decimal(14, 2)
+  createdAt                    DateTime         @default(now())
+  updatedAt                    DateTime         @updatedAt
+  tenant                       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices                     Invoice[]
+  cases                        CollectionCase[]
+  payments                     Payment[]
+  promises                     PromiseToPay[]
+  smsMessages                  SmsMessage[]
+  whatsappMessages             WhatsAppMessage[]
+  @@unique([tenantId, customerCode])
+  @@index([tenantId, status, riskLevel])
+}
+
+model Invoice {
+  id                  String           @id @default(cuid())
+  tenantId            String
+  customerId          String
+  invoiceNumber       String
+  invoiceDate         DateTime
+  dueDate             DateTime
+  totalAmount         Decimal          @db.Decimal(14, 2)
+  paidAmount          Decimal          @default(0) @db.Decimal(14, 2)
+  remainingAmount     Decimal          @db.Decimal(14, 2)
+  vatAmount           Decimal          @default(0) @db.Decimal(14, 2)
+  currency            String           @default("SAR")
+  status              InvoiceStatus    @default(UNPAID)
+  overdueDays         Int              @default(0)
+  assignedCollectorId String?
+  attachmentUrl       String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedCollector   User?            @relation("AssignedInvoiceCollector", fields: [assignedCollectorId], references: [id])
+  cases               CollectionCase[]
+  payments            Payment[]
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, status, dueDate])
+}
+
+model CollectionCase {
+  id                  String           @id @default(cuid())
+  tenantId            String
+  customerId          String
+  invoiceId           String?
+  caseNumber          String
+  outstandingAmount   Decimal          @db.Decimal(14, 2)
+  priority            CasePriority     @default(MEDIUM)
+  stage               CaseStage        @default(NEW)
+  assignedCollectorId String?
+  nextFollowUpDate    DateTime?
+  escalationStatus    EscalationStatus @default(NONE)
+  disputeFlag         Boolean          @default(false)
+  legalEscalation     Boolean          @default(false)
+  notes               String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoice             Invoice?         @relation(fields: [invoiceId], references: [id])
+  assignedCollector   User?            @relation("AssignedCollector", fields: [assignedCollectorId], references: [id])
+  activities          CaseActivity[]
+  promises            PromiseToPay[]
+  smsMessages         SmsMessage[]
+  whatsappMessages    WhatsAppMessage[]
+  @@unique([tenantId, caseNumber])
+  @@index([tenantId, stage, priority])
+}
+
+model CaseActivity {
+  id             String          @id @default(cuid())
+  tenantId       String
+  caseId         String
+  userId         String?
+  type           ActivityType
+  summary        String
+  outcome        String?
+  nextActionDate DateTime?
+  createdAt      DateTime        @default(now())
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case           CollectionCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user           User?           @relation(fields: [userId], references: [id])
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  tenantId        String
+  customerId      String
+  invoiceId       String?
+  paymentNumber   String
+  amount          Decimal       @db.Decimal(14, 2)
+  currency        String        @default("SAR")
+  paymentDate     DateTime
+  method          PaymentMethod
+  referenceNumber String?
+  proofUrl        String?
+  notes           String?
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoice         Invoice?      @relation(fields: [invoiceId], references: [id])
+  createdBy       User?         @relation("CreatedPayments", fields: [createdById], references: [id])
+  @@unique([tenantId, paymentNumber])
+}
+
+model PromiseToPay {
+  id             String        @id @default(cuid())
+  tenantId       String
+  caseId         String
+  customerId     String
+  promisedAmount Decimal       @db.Decimal(14, 2)
+  promiseDate    DateTime
+  committedBy    String
+  status         PromiseStatus @default(PENDING)
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case           CollectionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  @@index([tenantId, status, promiseDate])
+}
+
+model SmsProvider {
+  id           String       @id @default(cuid())
+  tenantId     String?
+  providerName String
+  providerCode String
+  apiBaseUrl   String?
+  senderName   String?
+  isActive     Boolean      @default(false)
+  settingsJson Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  tenant       Tenant?      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages     SmsMessage[]
+  @@unique([tenantId, providerCode])
+}
+
+model SmsMessage {
+  id                String        @id @default(cuid())
+  tenantId          String
+  customerId        String?
+  caseId            String?
+  providerId        String?
+  recipientPhone    String
+  messageBody       String
+  status            MessageStatus @default(DEMO)
+  providerMessageId String?
+  errorMessage      String?
+  sentById          String?
+  sentAt            DateTime?
+  createdAt         DateTime      @default(now())
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  case              CollectionCase? @relation(fields: [caseId], references: [id])
+  provider          SmsProvider?  @relation(fields: [providerId], references: [id])
+  sentBy            User?         @relation("SmsSentBy", fields: [sentById], references: [id])
+}
+
+model WhatsAppAccount {
+  id              String                @id @default(cuid())
+  tenantId        String
+  name            String
+  phoneNumber     String?
+  provider        String
+  status          String                @default("DEMO")
+  qrCodeUrl       String?
+  sessionStatus   WhatsAppSessionStatus @default(NOT_CONNECTED)
+  lastConnectedAt DateTime?
+  settingsJson    Json?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages        WhatsAppMessage[]
+}
+
+model WhatsAppMessage {
+  id                String        @id @default(cuid())
+  tenantId          String
+  customerId        String?
+  caseId            String?
+  whatsappAccountId String?
+  recipientPhone    String
+  messageBody       String
+  status            MessageStatus @default(DEMO)
+  providerMessageId String?
+  errorMessage      String?
+  sentById          String?
+  sentAt            DateTime?
+  createdAt         DateTime      @default(now())
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  case              CollectionCase? @relation(fields: [caseId], references: [id])
+  whatsappAccount   WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id])
+  sentBy            User?         @relation("WhatsAppSentBy", fields: [sentById], references: [id])
+}
+
+model Notification {
+  id        String             @id @default(cuid())
+  tenantId  String
+  userId    String?
+  type      String
+  title     String
+  body      String
+  status    NotificationStatus @default(UNREAD)
+  createdAt DateTime           @default(now())
+  readAt    DateTime?
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User?              @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id])
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, key])
+}
+
+model ReportMetadata {
+  id          String   @id @default(cuid())
+  tenantId    String
+  key         String
+  title       String
+  description String?
+  filters     Json?
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, key])
+}
